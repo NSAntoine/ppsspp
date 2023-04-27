@@ -41,9 +41,7 @@ variableName.state = [self controlStateForBool: ConfigurationValueName];
 @interface BarItemsManager : NSObject <NSMenuDelegate>
 +(instancetype)sharedInstance;
 -(void)setupAppBarItems;
-@property (assign) NSMenu *openMenu;
-@property (assign) std::shared_ptr<I18NCategory> mainSettingsLocalization;
-@property (assign) std::shared_ptr<I18NCategory> graphicsLocalization;
+@property (assign) NSMenu *fileMenu;
 @end
 
 void initializeOSXExtras() {
@@ -67,18 +65,25 @@ void OSXOpenURL(const char *url) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         stub = [BarItemsManager new];
-        stub.mainSettingsLocalization = GetI18NCategory(I18NCat::MAINSETTINGS);
     });
-    
     return stub;
+}
+
+-(NSString *)localizedString: (const char *)key category: (I18NCat)cat {
+    return @(T(cat, key));
+}
+
+-(NSString *)localizedMenuString: (const char *)key {
+    std::string processed = UnescapeMenuString(T(I18NCat::DESKTOPUI, key), nullptr);
+    return @(processed.c_str());
 }
 
 -(void)setupAppBarItems {
     
-    NSMenuItem *openMenuItem = [[NSMenuItem alloc] init];
-    openMenuItem.submenu = [self makeOpenSubmenu];
-    openMenuItem.submenu.delegate = self;
-    
+    NSMenuItem *fileMenuItem = [[NSMenuItem alloc] init];
+    fileMenuItem.submenu = [self makeFileSubmenu];
+    fileMenuItem.submenu.delegate = self;
+
     NSMenuItem *graphicsMenuItem = [[NSMenuItem alloc] init];
     graphicsMenuItem.submenu = [self makeGraphicsMenu];
     graphicsMenuItem.submenu.delegate = self;
@@ -90,12 +95,12 @@ void OSXOpenURL(const char *url) {
     NSMenuItem *helpMenuItem = [[NSMenuItem alloc] init];
     helpMenuItem.submenu = [self makeHelpMenu];
     
-    [NSApplication.sharedApplication.menu addItem:openMenuItem];
+    [NSApplication.sharedApplication.menu addItem:fileMenuItem];
     [NSApplication.sharedApplication.menu addItem:graphicsMenuItem];
     [NSApplication.sharedApplication.menu addItem:debugMenuItem];
     [NSApplication.sharedApplication.menu addItem:helpMenuItem];
     
-    NSString *windowMenuItemTitle = @"Window";
+    NSString *windowMenuItemTitle = @"Window";  // Don't translate, we lookup this.
     // Rearrange 'Window' to be behind 'Help'
     for (NSMenuItem *item in NSApplication.sharedApplication.menu.itemArray) {
         if ([item.title isEqualToString:windowMenuItemTitle]) {
@@ -107,7 +112,7 @@ void OSXOpenURL(const char *url) {
             break;
         }
     }
-    
+
     NSArray <NSMenuItem *> *firstSubmenu = NSApp.menu.itemArray.firstObject.submenu.itemArray;
     for (NSMenuItem *item in firstSubmenu) {
         // about item, set action
@@ -148,7 +153,7 @@ void OSXOpenURL(const char *url) {
 }
 
 - (void)menuNeedsUpdate:(NSMenu *)menu {
-    if ([menu.title isEqualToString: [self localizedString:"Graphics" category: self.mainSettingsLocalization]]) {
+    if ([menu.title isEqualToString: [self localizedMenuString:"Graphics"]]) {
         for (NSMenuItem *item in menu.itemArray) {
             switch (item.tag) {
                 case 1:
@@ -176,7 +181,7 @@ void OSXOpenURL(const char *url) {
                     break;
             }
         }
-    } else if ([menu.title isEqualToString: [self localizedString:"Debug" category: self.mainSettingsLocalization]]) {
+    } else if ([menu.title isEqualToString: [self localizedMenuString:"Debug"]]) {
         for (NSMenuItem *item in menu.itemArray) {
             switch ([item tag]) {
                 case 2:
@@ -190,10 +195,6 @@ void OSXOpenURL(const char *url) {
             }
         }
     }
-}
-
--(NSString *)localizedString: (const char *)key category: (std::shared_ptr<I18NCategory>)cat {
-    return @(self.mainSettingsLocalization->T(key));
 }
 
 -(NSMenu *)makeHelpMenu {
@@ -216,27 +217,39 @@ void OSXOpenURL(const char *url) {
     [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"https://discord.gg/5NJB6dD"]];
 }
 
--(NSMenu *)makeOpenSubmenu {
-    NSMenu *menu = [[NSMenu alloc] initWithTitle:@"File"];
-    NSMenuItem *openWithSystemFolderBrowserItem = [[NSMenuItem alloc] initWithTitle:@"Open..." action:@selector(openSystemFileBrowser) keyEquivalent:@"o"];
+-(NSMenu *)makeFileSubmenu {
+    std::shared_ptr<I18NCategory> desktopUILocalization = GetI18NCategory(I18NCat::DESKTOPUI);
+#define DESKTOPUI_LOCALIZED(key) @(UnescapeMenuString(desktopUILocalization->T(key), nil).c_str())
+
+    NSMenu *menu = [[NSMenu alloc] initWithTitle:DESKTOPUI_LOCALIZED("File")];
+    NSMenuItem *openWithSystemFolderBrowserItem = [[NSMenuItem alloc] initWithTitle:DESKTOPUI_LOCALIZED("Load") action:@selector(openSystemFileBrowser) keyEquivalent:@"o"];
     openWithSystemFolderBrowserItem.keyEquivalentModifierMask = NSEventModifierFlagCommand;
     openWithSystemFolderBrowserItem.enabled = YES;
     openWithSystemFolderBrowserItem.target = self;
     [menu addItem:openWithSystemFolderBrowserItem];
-    self.openMenu = menu;
-    
+    self.fileMenu = menu;
     [self addOpenRecentlyItem];
+
+    [self.fileMenu addItem:[NSMenuItem separatorItem]];
+
+    NSMenuItem *openMemstickFolderItem = [[NSMenuItem alloc] initWithTitle:DESKTOPUI_LOCALIZED("Open Memory Stick") action:@selector(openMemstickFolder) keyEquivalent:@""];
+    openMemstickFolderItem.target = self;
+    [self.fileMenu addItem:openMemstickFolderItem];
+
     return menu;
 }
 
--(NSMenu *)makeGraphicsMenu {
-    NSMenu *parent = [[NSMenu alloc] initWithTitle:@(self.mainSettingsLocalization->T("Graphics"))];
+-(NSMenu *)makeGraphicsMenu {    
+    std::shared_ptr<I18NCategory> mainSettingsLocalization = GetI18NCategory(I18NCat::MAINSETTINGS);
+    std::shared_ptr<I18NCategory> graphicsLocalization = GetI18NCategory(I18NCat::GRAPHICS);
+    std::shared_ptr<I18NCategory> desktopUILocalization = GetI18NCategory(I18NCat::DESKTOPUI);
+
+    NSMenu *parent = [[NSMenu alloc] initWithTitle:@(mainSettingsLocalization->T("Graphics"))];
     NSMenu *backendsMenu = [[NSMenu alloc] init];
+#define GRAPHICS_LOCALIZED(key) @(graphicsLocalization->T(key))
+#define DESKTOPUI_LOCALIZED(key) @(UnescapeMenuString(desktopUILocalization->T(key), nil).c_str())
     
-    self.graphicsLocalization = GetI18NCategory(I18NCat::GRAPHICS);
-#define GRAPHICS_LOCALIZED(key) @(self.graphicsLocalization->T(key))
-    
-    NSMenuItem *gpuBackendItem = [[NSMenuItem alloc] initWithTitle:GRAPHICS_LOCALIZED("Backend") action:nil keyEquivalent:@""];
+    NSMenuItem *gpuBackendItem = [[NSMenuItem alloc] initWithTitle:DESKTOPUI_LOCALIZED("Backend") action:nil keyEquivalent:@""];
     
     std::vector<GPUBackend> allowed = [self allowedGPUBackends];
     for (int i = 0; i < allowed.size(); i++) {
@@ -258,7 +271,7 @@ void OSXOpenURL(const char *url) {
     MENU_ITEM(vsyncItem, GRAPHICS_LOCALIZED("VSync"), @selector(toggleVSync:), g_Config.bVSync, 2)
     [parent addItem:vsyncItem];
     
-    MENU_ITEM(fullScreenItem, GRAPHICS_LOCALIZED("Fullscreen"), @selector(toggleFullScreen:), g_Config.bFullScreen, 3)
+    MENU_ITEM(fullScreenItem, DESKTOPUI_LOCALIZED("Fullscreen"), @selector(toggleFullScreen:), g_Config.bFullScreen, 3)
     [parent addItem:fullScreenItem];
     
     [parent addItem:[NSMenuItem separatorItem]];
@@ -268,7 +281,7 @@ void OSXOpenURL(const char *url) {
     
     [parent addItem:[NSMenuItem separatorItem]];
     
-    MENU_ITEM(fpsCounterItem, GRAPHICS_LOCALIZED("Show FPS Counter"), @selector(setToggleShowCounterItem:), g_Config.iShowStatusFlags & (int)ShowStatusFlags::FPS_COUNTER, 5)
+    MENU_ITEM(fpsCounterItem, DESKTOPUI_LOCALIZED("Show FPS Counter"), @selector(setToggleShowCounterItem:), g_Config.iShowStatusFlags & (int)ShowStatusFlags::FPS_COUNTER, 5)
     fpsCounterItem.tag = (int)ShowStatusFlags::FPS_COUNTER + 100;
     
     MENU_ITEM(speedCounterItem, GRAPHICS_LOCALIZED("Show Speed"), @selector(setToggleShowCounterItem:), g_Config.iShowStatusFlags & (int)ShowStatusFlags::SPEED_COUNTER, 6)
@@ -290,8 +303,8 @@ void OSXOpenURL(const char *url) {
     std::shared_ptr<I18NCategory> sysInfoLocalization = GetI18NCategory(I18NCat::SYSINFO);
     std::shared_ptr<I18NCategory> desktopUILocalization = GetI18NCategory(I18NCat::DESKTOPUI);
 #define DESKTOPUI_LOCALIZED(key) @(UnescapeMenuString(desktopUILocalization->T(key), nil).c_str())
-    
-    NSMenu *parent = [[NSMenu alloc] initWithTitle:@(sysInfoLocalization->T("Debug"))];
+
+    NSMenu *parent = [[NSMenu alloc] initWithTitle:DESKTOPUI_LOCALIZED("Debugging")];
     
     NSMenuItem *breakAction = [[NSMenuItem alloc] initWithTitle:DESKTOPUI_LOCALIZED("Break") action:@selector(breakAction:) keyEquivalent:@""];
     breakAction.tag = 1;
@@ -307,10 +320,10 @@ void OSXOpenURL(const char *url) {
     [parent addItem:ignoreIllegalRWAction];
     [parent addItem:[NSMenuItem separatorItem]];
     
-    NSMenuItem *loadSymbolMapAction = [[NSMenuItem alloc] initWithTitle:DESKTOPUI_LOCALIZED("Load Map file") action:@selector(loadMapFile) keyEquivalent:@""];
+    NSMenuItem *loadSymbolMapAction = [[NSMenuItem alloc] initWithTitle:DESKTOPUI_LOCALIZED("Load Map File...") action:@selector(loadMapFile) keyEquivalent:@""];
     loadSymbolMapAction.target = self;
     
-    NSMenuItem *saveMapFileAction = [[NSMenuItem alloc] initWithTitle:DESKTOPUI_LOCALIZED("Save Map file") action:@selector(saveMapFile) keyEquivalent:@""];
+    NSMenuItem *saveMapFileAction = [[NSMenuItem alloc] initWithTitle:DESKTOPUI_LOCALIZED("Save Map file...") action:@selector(saveMapFile) keyEquivalent:@""];
     saveMapFileAction.target = self;
     
     NSMenuItem *loadSymFileAction = [[NSMenuItem alloc] initWithTitle:DESKTOPUI_LOCALIZED("Load .sym File...") action:@selector(loadSymbolsFile) keyEquivalent:@""];
@@ -325,7 +338,7 @@ void OSXOpenURL(const char *url) {
     NSMenuItem *takeScreenshotAction = [[NSMenuItem alloc] initWithTitle:DESKTOPUI_LOCALIZED("Take Screenshot") action:@selector(takeScreenshot) keyEquivalent:@""];
     takeScreenshotAction.target = self;
     
-    NSMenuItem *dumpNextFrameToLogAction = [[NSMenuItem alloc] initWithTitle:DESKTOPUI_LOCALIZED("Dump next frame to log") action:@selector(dumpNextFrameToLog) keyEquivalent:@""];
+    NSMenuItem *dumpNextFrameToLogAction = [[NSMenuItem alloc] initWithTitle:DESKTOPUI_LOCALIZED("Dump Next Frame to Log") action:@selector(dumpNextFrameToLog) keyEquivalent:@""];
     dumpNextFrameToLogAction.target = self;
     
     NSMenuItem *copyBaseAddr = [[NSMenuItem alloc] initWithTitle:DESKTOPUI_LOCALIZED("Copy PSP memory base address") action:@selector(copyAddr) keyEquivalent:@""];
@@ -501,7 +514,7 @@ TOGGLE_METHOD(ShowDebugStats, g_Config.bShowDebugStats, NativeMessageReceived("c
 
 -(void)addOpenRecentlyItem {
     std::vector<std::string> recentIsos = g_Config.RecentIsos();
-    NSMenuItem *openRecent = [[NSMenuItem alloc] initWithTitle:@"Open Recent" action:nil keyEquivalent:@""];
+    NSMenuItem *openRecent = [[NSMenuItem alloc] initWithTitle:@"Recent" action:nil keyEquivalent:@""];
     NSMenu *recentsMenu = [[NSMenu alloc] init];
     if (recentIsos.empty())
         openRecent.enabled = NO;
@@ -514,7 +527,7 @@ TOGGLE_METHOD(ShowDebugStats, g_Config.bShowDebugStats, NativeMessageReceived("c
     }
     
     openRecent.submenu = recentsMenu;
-    [self.openMenu addItem:openRecent];
+    [self.fileMenu addItem:openRecent];
 }
 
 -(void)openRecentItem: (NSMenuItem *)item {
@@ -530,6 +543,11 @@ TOGGLE_METHOD(ShowDebugStats, g_Config.bShowDebugStats, NativeMessageReceived("c
     
     DarwinFileSystemServices services;
     services.presentDirectoryPanel(callback, /* allowFiles = */ true, /* allowDirectorites = */ true);
+}
+
+-(void)openMemstickFolder {
+    NSURL *memstickURL = [NSURL fileURLWithPath:@(g_Config.memStickDirectory.c_str())];
+    [NSWorkspace.sharedWorkspace openURL:memstickURL];
 }
 
 - (void)dealloc {

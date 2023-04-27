@@ -7,7 +7,13 @@
 #include <pwd.h>
 
 #include "ppsspp_config.h"
+#if PPSSPP_PLATFORM(MAC)
+#include "SDL2/SDL.h"
+#include "SDL2/SDL_syswm.h"
+#else
 #include "SDL.h"
+#include "SDL_syswm.h"
+#endif
 #include "SDL/SDLJoystick.h"
 SDLJoystick *joystick = NULL;
 
@@ -34,8 +40,6 @@ SDLJoystick *joystick = NULL;
 #include "Common/Math/math_util.h"
 #include "Common/GPU/OpenGL/GLRenderManager.h"
 #include "Common/Profiler/Profiler.h"
-
-#include "SDL_syswm.h"
 
 #if defined(VK_USE_PLATFORM_XLIB_KHR)
 #include <X11/Xlib.h>
@@ -1163,6 +1167,20 @@ int main(int argc, char *argv[]) {
 					KeyInput key;
 					key.deviceId = DEVICE_ID_MOUSE;
 					key.flags = KEY_DOWN;
+					if (event.wheel.preciseY != 0.0f) {
+						// Should the scale be DPI-driven?
+						const float scale = 30.0f;
+						key.keyCode = event.wheel.preciseY > 0 ? NKCODE_EXT_MOUSEWHEEL_UP : NKCODE_EXT_MOUSEWHEEL_DOWN;
+						key.flags |= KEY_HASWHEELDELTA;
+						int wheelDelta = event.wheel.preciseY * scale;
+						if (event.wheel.preciseY < 0) {
+							 wheelDelta = -wheelDelta;
+						}
+						key.flags |= wheelDelta << 16;
+						NativeKey(key);
+						break;
+					}
+					// TODO: Should we even keep the "non-precise" events?
 					if (event.wheel.y > 0) {
 						key.keyCode = NKCODE_EXT_MOUSEWHEEL_UP;
 						mouseWheelMovedUpFrames = 5;
